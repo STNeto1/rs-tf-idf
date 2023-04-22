@@ -1,77 +1,96 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
-#[derive(Debug, Default)]
-struct Metadata {
-    tf: i32,
-    idf: f32,
-    tf_idf: f32,
+type TF = HashMap<String, usize>;
+type FileTF = HashMap<PathBuf, TF>;
+
+#[derive(Debug)]
+struct Lexer<'a> {
+    content: &'a [char],
+}
+
+impl<'a> Lexer<'a> {
+    fn new(content: &'a [char]) -> Self {
+        Self { content }
+    }
+
+    fn trim_left(&mut self) {
+        while self.content.len() > 0 && self.content[0].is_whitespace() {
+            self.content = &self.content[1..];
+        }
+    }
+
+    fn chop(&mut self, n: usize) -> &'a [char] {
+        let token = &self.content[0..n];
+        self.content = &self.content[n..];
+        token
+    }
+
+    fn chop_while<P>(&mut self, mut predicate: P) -> &'a [char]
+    where
+        P: FnMut(&char) -> bool,
+    {
+        let mut n = 0;
+        while self.content.len() > n && predicate(&self.content[n]) {
+            n += 1;
+        }
+
+        self.chop(n)
+    }
+
+    fn next_token(&mut self) -> Option<&'a [char]> {
+        self.trim_left();
+        if self.content.len() == 0 {
+            return None;
+        }
+
+        if self.content[0].is_numeric() {
+            return Some(self.chop_while(|c| c.is_numeric()));
+        }
+
+        if self.content[0].is_alphabetic() {
+            return Some(self.chop_while(|c| c.is_alphabetic()));
+        }
+
+        return Some(self.chop(1));
+    }
+}
+
+impl<'a> Iterator for Lexer<'a> {
+    type Item = &'a [char];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_token()
+    }
 }
 
 fn main() {
+    // let all_documents: HashMap<Path, HashMap<String, i32>> = HashMap::new();
+
+    let mut file_tf: FileTF = HashMap::new();
+
     let files = vec!["unix", "posix", "c"];
 
-    let content = std::fs::read_to_string("assets/unix.txt").unwrap();
-    let tokens = tokenizer(&content);
+    for file in files {
+        let content = std::fs::read_to_string(format!("assets/{}.txt", file))
+            .unwrap()
+            .chars()
+            .collect::<Vec<_>>();
 
-    let token_map: HashMap<&str, Vec<String>> = files
-        .clone()
-        .into_iter()
-        .map(|file| {
-            let content = std::fs::read_to_string(format!("assets/{}.txt", file)).unwrap();
-            let tokens = tokenizer(&content);
-            (file, tokens)
-        })
-        .collect();
+        let mut tf = TF::new();
 
-    let mut map: HashMap<&str, Metadata> = std::collections::HashMap::new();
+        for token in Lexer::new(&content) {
+            let token = token
+                .iter()
+                .map(|c| c.to_ascii_uppercase())
+                .collect::<String>();
+            let count = tf.entry(token).or_insert(0);
+            *count += 1;
+        }
 
-    // calculate term frequency
-    tokens.iter().for_each(|token| {
-        let metadata = map.entry(token).or_insert(Metadata::default());
+        file_tf.insert(PathBuf::from(file), tf);
+    }
 
-        *metadata = Metadata {
-            tf: metadata.tf + 1,
-            idf: 0.0,
-            tf_idf: 0.0,
-        };
-    });
-
-    // calculate inverse document frequency
-    tokens.iter().for_each(|token| {
-        let metadata = map.entry(token).or_insert(Metadata::default());
-
-        let files_with_token = token_map
-            .iter()
-            .filter(|(_, tokens)| tokens.contains(&token.to_string()))
-            .count();
-
-        let idf = (files.len() as f32 / files_with_token as f32).ln();
-
-        *metadata = Metadata {
-            tf: metadata.tf,
-            idf,
-            tf_idf: metadata.tf as f32 * idf,
-        };
-    });
-
-    // sort map by tf_idf and print
-    let mut vec: Vec<(_, _)> = map.iter().collect();
-    vec.sort_by(|(_, a), (_, b)| b.tf_idf.partial_cmp(&a.tf_idf).unwrap());
-
-    vec.iter().for_each(|(token, metadata)| {
-        println!("{}: {:?}", token, metadata);
-    });
-}
-
-fn tokenizer(content: &str) -> Vec<String> {
-    content
-        .split_whitespace()
-        .map(|s| s.to_lowercase())
-        .map(|s| {
-            s.chars()
-                .filter(|c| c.is_alphanumeric())
-                .collect::<String>()
-        })
-        .filter(|s| s.len() > 1)
-        .collect::<Vec<_>>()
+    for (file, tf) in file_tf {
+        println!("{} has {} unique tokens", file.display(), tf.len());
+    }
 }
