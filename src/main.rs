@@ -37,26 +37,31 @@ impl<'a> Lexer<'a> {
         self.chop(n)
     }
 
-    fn next_token(&mut self) -> Option<&'a [char]> {
+    fn next_token(&mut self) -> Option<String> {
         self.trim_left();
         if self.content.len() == 0 {
             return None;
         }
 
         if self.content[0].is_numeric() {
-            return Some(self.chop_while(|c| c.is_numeric()));
+            return Some(self.chop_while(|c| c.is_numeric()).iter().collect());
         }
 
         if self.content[0].is_alphabetic() {
-            return Some(self.chop_while(|c| c.is_alphabetic()));
+            return Some(
+                self.chop_while(|c| c.is_alphabetic())
+                    .iter()
+                    .map(|c| c.to_ascii_uppercase())
+                    .collect(),
+            );
         }
 
-        return Some(self.chop(1));
+        return Some(self.chop(1).iter().collect());
     }
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = &'a [char];
+    type Item = String;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.next_token()
@@ -79,10 +84,6 @@ fn main() {
         let mut tf = TF::new();
 
         for token in Lexer::new(&content) {
-            let token = token
-                .iter()
-                .map(|c| c.to_ascii_uppercase())
-                .collect::<String>();
             let count = tf.entry(token).or_insert(0);
             *count += 1;
         }
@@ -90,7 +91,42 @@ fn main() {
         file_tf.insert(PathBuf::from(file), tf);
     }
 
-    for (file, tf) in file_tf {
-        println!("{} has {} unique tokens", file.display(), tf.len());
+    let term_to_search = "unix computing language POSIX";
+    let mut result = Vec::<(&PathBuf, f32)>::new();
+
+    for (file, tf) in &file_tf {
+        let mut total_sum = 0f32;
+        for token in Lexer::new(term_to_search.chars().collect::<Vec<_>>().as_slice()) {
+            let token_tf_rating = tf_rating(&token, tf);
+            let token_idf_rating = idf_rating(&token, &file_tf);
+
+            total_sum += token_tf_rating * token_idf_rating;
+        }
+
+        result.push((file, total_sum));
     }
+
+    result.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
+
+    for (file, score) in result {
+        println!("{}: {}", file.display(), score);
+    }
+}
+
+fn tf_rating(term: &str, document: &TF) -> f32 {
+    let top = document.get(term).clone().unwrap_or(&0);
+    let bottom = document.values().sum::<usize>();
+
+    return *top as f32 / bottom as f32;
+}
+
+fn idf_rating(term: &str, all_documents: &FileTF) -> f32 {
+    let n = all_documents.len();
+    let df = all_documents
+        .values()
+        .filter(|document| document.contains_key(term))
+        .count()
+        .max(1);
+
+    return (n as f32 / df as f32).log10();
 }
