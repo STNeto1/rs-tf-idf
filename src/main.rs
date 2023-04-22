@@ -16,11 +16,12 @@ fn main() {
 fn tokenizer(content: &str) -> Vec<String> {
     content
         .split_whitespace()
-        .map(|s| s.to_lowercase()) // convert to lowercase
-        .filter(|s| {
+        .map(|s| s.to_lowercase())
+        .map(|s| {
             s.chars()
-                .all(|c| c.is_alphabetic() || c == '-' || c == '\'')
-        }) // filter out non-alphabetic characters
-        .filter(|s| s.len() > 1) // filter out single characters
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+        })
+        .filter(|s| s.len() > 1)
         .collect::<Vec<_>>()
 }
